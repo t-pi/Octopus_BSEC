@@ -1,0 +1,7 @@
+// Import access keys from separate file, s. example file
+// needed are:
+// WIFI
+// #define MYSSID    <your Wifi's SSID>
+// #define MYPWD     <your Wifi's passwort>
+// ThingSpeak API key
+// #define ThingSpeakAPI <your ThingSpeak API write key>
