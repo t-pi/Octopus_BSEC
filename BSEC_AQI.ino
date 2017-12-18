@@ -1,4 +1,9 @@
 /*
+ * Changelog
+ * 2017-12 t-pi: Added ESPWifi and ThingSpeak Interface from Octopus documentation / sketch GassensorThingspeak.ino
+ * 2017-12 t-pi: Added Neopixel signaling: Left Pixel red if accuracy = 0, Right Pixel green / red between AQI 0..150
+ */
+/*
  * Copyright (C) 2017 Robert Bosch. All Rights Reserved. 
  *
  * Disclaimer
@@ -110,6 +115,7 @@ Adafruit_NeoPixel neopixels = Adafruit_NeoPixel(NEOPIXELS, NEOPIN, NEO_GRB + NEO
 #define LEDPIN      2
 
 // Aggregation --> average of # measurements
+// Reduce amount of messages to ThingSpeak
 #define AVERAGE 10
 int count = 0;
 float TStemp = 0;
@@ -132,28 +138,30 @@ int TSaccuracy = 1;
  * param[out]       antwort   reply from site
  *
  * @return          boolean, if ok
+ * 
+ * From original Octopus documentation sketch GassensorThingspeak.ino
  */
 int httpGET(String host, String cmd, String &antwort) {
-  WiFiClient client; // Client über WiFi
+  WiFiClient client; // Client via ESP WiFi
   String text = "GET https://"+ host + cmd + " HTTP/1.1\r\n";
   text = text + "Host:" + host + "\r\n";
   text = text + "Connection:close\r\n\r\n";
   int ok = 1;
-  if (ok) { // Netzwerkzugang vorhanden 
-    ok = client.connect(host.c_str(),80);// verbinde mit Client
+  if (ok) { // Connection available 
+    ok = client.connect(host.c_str(),80);   // connecto to Client
     if (ok) {
-      client.print(text);                 // sende an Client 
+      client.print(text);                   // send to Client 
       for (int tout=1000;tout>0 && client.available()==0; tout--)
-        delay(10);                         // und warte auf Antwort
-      if (client.available() > 0)         // Anwort gesehen 
-        while (client.available())         // und ausgewertet
+        delay(10);                          // and wait for reply
+      if (client.available() > 0)           // got reply 
+        while (client.available())          // reading
           antwort = antwort + client.readStringUntil('\r');
       else ok = 0;
       client.stop(); 
-      Serial.println(antwort);
+      Serial.print(antwort);
     } 
   } 
-  if (!ok) Serial.print(" no Wifi connection"); // Fehlermeldung
+  if (!ok) Serial.print(" no Wifi connection"); // Error
   return ok;
 }
 
@@ -247,6 +255,12 @@ int64_t get_timestamp_us()
  * @param[in]       bsec_status     value returned by the bsec_do_steps() call
  *
  * @return          none
+ * 
+ * Changelog:
+ * 2017-12 t-pi: Added Pressure and Raw VOC value output
+ * 2017-12 t-pi: Added Neopixel signaling of accuracy / AQI
+ * 2017-12 t-pi: Added ThingSpeak output of values
+ * 
  */
 void output_ready(int64_t timestamp, float iaq, uint8_t iaq_accuracy, float temperature, float humidity,
      float pressure, float raw_temperature, float raw_humidity, float gas, bsec_library_return_t bsec_status)
@@ -275,32 +289,37 @@ void output_ready(int64_t timestamp, float iaq, uint8_t iaq_accuracy, float temp
     else
     {   neopixels.setPixelColor(NEOLEFT, neopixels.Color(0,0,0));  
     }
-    neopixels.setPixelColor(NEORIGHT, neopixels.Color(iaq>150?30:iaq/5,iaq<150?30-(iaq/5):0,0)); // Moderately bright green color.
+    // right pixel red increases from 0..150, while green decreases
+    // brightness limited to 30 to avoid sleepless nights
+    // higher AQI are limited to 150
+    neopixels.setPixelColor(NEORIGHT, neopixels.Color(iaq>150?30:iaq/5,iaq<150?30-(iaq/5):0,0));
     neopixels.show(); // This sends the updated pixel color to the hardware.
 
+    // small blink of ESP-LED to indicate activity
     digitalWrite(LEDPIN, HIGH);   // turn the LED on (HIGH is the voltage level)
     delay(100);
 
-
     // calculate average of AVERAGE samples before uploading to ThingSpeak
     count++;
-    if (count<=AVERAGE) {
+    if (count<=AVERAGE) { // sum up over AVERAGE readings
       TStemp += temperature;
       TShum += humidity;
       TSpress += pressure;
       TSiaq += iaq;
       TSvoc += gas; 
+      // Accuracy is set to latest accuracy, only 0 is sticky for AVERAGE samples
+      // --> used to detect any accuracy 0
       TSaccuracy = TSaccuracy==0 ? 0 : iaq_accuracy;    
     }
-    else {
+    else { // and divide the sum by AVERAGE
       TStemp /= AVERAGE;
       TShum /= AVERAGE;
       TSpress /= AVERAGE;
       TSiaq /= AVERAGE;
       TSvoc /= AVERAGE;      
-      Serial.print("Sending data to ThingSpeak.... ");
+      Serial.print("Sending data to ThingSpeak.... Msg #");
       // Send data to ThingSpeak site
-      // 1: T, 2: rH, 3: P, 4: IAQ, 5: VOC
+      // 1: T, 2: rH, 3: P, 4: IAQ, 5: VOC, 6: Accuracy
       String cmd = "/update?api_key="+ String(ThingSpeakAPI);
       String host = "api.thingspeak.com";
       String antwort= " ";
@@ -311,7 +330,8 @@ void output_ready(int64_t timestamp, float iaq, uint8_t iaq_accuracy, float temp
         +"&field5="+String(TSvoc)
         +"&field6="+String(TSaccuracy))+ "\n\r";
       httpGET(host,cmd,antwort);// und absenden 
-      Serial.println("ok");
+      Serial.println(" ok!");
+      // Reset averaging
       count = 0;
       TStemp = 0;
       TShum = 0;
@@ -320,7 +340,7 @@ void output_ready(int64_t timestamp, float iaq, uint8_t iaq_accuracy, float temp
       TSvoc = 0;
       TSaccuracy = 1;
     }
-    digitalWrite(LED_BUILTIN, LOW);    // turn the LED off by making the voltage LOW
+    digitalWrite(LED_BUILTIN, LOW);    // turn the ESP LED off after message sent
 }
 
 /*!
@@ -403,7 +423,7 @@ void setup()
       delay(500); 
       Serial.print(".");
     };
-    Serial.println ("\nconnected, meine IP:"+ WiFi.localIP().toString());
+    Serial.println ("\nconnected, my IP:"+ WiFi.localIP().toString());
 
    /* Call to the function which initializes the BSEC library 
      * Switch on low-power mode and provide no temperature offset */
@@ -421,7 +441,7 @@ void setup()
         return;
     }
 
-    // Set BME680 configuration
+    // First playing with BME680 configuration - so far (2017-12-18) no success
     uint8_t serialized_settings[BSEC_MAX_PROPERTY_BLOB_SIZE];
     uint32_t n_serialized_settings_max = BSEC_MAX_PROPERTY_BLOB_SIZE;
     uint8_t work_buffer[BSEC_MAX_PROPERTY_BLOB_SIZE];
