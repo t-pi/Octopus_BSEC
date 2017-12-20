@@ -125,6 +125,11 @@ float TSiaq = 0;
 float TSvoc = 0;
 int TSaccuracy = 1;
 
+// Variables for alternative AQI index
+float hum_weighting = 0.25; // so hum effect is 25% of the total air quality score
+float gas_weighting = 0.75; // so gas effect is 75% of the total air quality score
+float hum_reference = 40;
+
 /**********************************************************************************************************************/
 /* functions */
 /**********************************************************************************************************************/
@@ -241,6 +246,57 @@ int64_t get_timestamp_us()
 }
 
 /*!
+ * @brief           Calculate alternative IAQ index (c) 2017 David Bird
+ *
+ * @param[in]       current_humidity    current humidity reading
+ * @param[in]       current_gas         current gas sensor resistance reading
+ *
+ * @param[out]      altIAQ              alternative IAQ index
+ * 
+ * @return          number of bytes copied to config_buffer
+// The MIT License (MIT) Copyright (c) 2017 by David Bird.
+// The formulation and calculation method of an IAQ - Internal Air Quality index
+// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files
+// (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge,
+// publish, distribute, but not to use it commercially for profit making or to sub-license and/or to sell copies of the Software or to
+// permit persons to whom the Software is furnished to do so, subject to the following conditions: 
+//   The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+//   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+//   OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+//   LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+//   CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+// See more at http://dsbird.org.uk
+ */
+float calc_altIAQ(float current_humidity, float current_gas){
+
+  float hum_score, gas_score;
+
+  //Calculate humidity contribution to IAQ index
+  if (current_humidity >= hum_reference - 2 && current_humidity <= hum_reference + 2)
+    hum_score = 0.25*100; // Humidity +/-5% around optimum 
+  else
+  { //sub-optimal
+    if (current_humidity < 38) 
+      hum_score = 0.25/hum_reference*current_humidity*100;
+    else
+    {
+      hum_score = ((-0.25/(100-hum_reference)*current_humidity)+0.416666)*100;
+    }
+  }
+  
+  //Calculate gas contribution to IAQ index
+  int gas_lower_limit = 50000;   // Bad air quality limit
+  int gas_upper_limit = 500000;  // Good air quality limit 
+  if (current_gas > gas_upper_limit) current_gas = gas_upper_limit; 
+  if (current_gas < gas_lower_limit) current_gas = gas_lower_limit;
+  gas_score = (0.75/(gas_upper_limit-gas_lower_limit)*current_gas -(gas_lower_limit*(0.75/(gas_upper_limit-gas_lower_limit))))*100;
+  
+  //Combine results for the final IAQ index value (0-100% where 100% is good quality air)
+  return(hum_score + gas_score);
+  
+}
+
+/*!
  * @brief           Handling of the ready outputs
  *
  * @param[in]       timestamp       time in nanoseconds
@@ -265,6 +321,8 @@ int64_t get_timestamp_us()
 void output_ready(int64_t timestamp, float iaq, uint8_t iaq_accuracy, float temperature, float humidity,
      float pressure, float raw_temperature, float raw_humidity, float gas, bsec_library_return_t bsec_status)
 {
+    float TSaltIAQ;
+    
     Serial.print("[");
     Serial.print(timestamp/1e6);
     Serial.print("] T: ");
@@ -317,6 +375,8 @@ void output_ready(int64_t timestamp, float iaq, uint8_t iaq_accuracy, float temp
       TSpress /= AVERAGE;
       TSiaq /= AVERAGE;
       TSvoc /= AVERAGE;      
+      // Calculate alternative IAQ index
+      TSaltIAQ = calc_altIAQ(TShum, TSvoc);
       Serial.print("Sending data to ThingSpeak.... Msg #");
       // Send data to ThingSpeak site
       // 1: T, 2: rH, 3: P, 4: IAQ, 5: VOC, 6: Accuracy
@@ -328,9 +388,12 @@ void output_ready(int64_t timestamp, float iaq, uint8_t iaq_accuracy, float temp
         +"&field3="+String(TSpress)
         +"&field4="+String(TSiaq)
         +"&field5="+String(TSvoc)
-        +"&field6="+String(TSaccuracy))+ "\n\r";
+        +"&field6="+String(TSaccuracy)
+        +"&field7="+String(TSaltIAQ))+ "\n\r";
       httpGET(host,cmd,antwort);// und absenden 
-      Serial.println(" ok!");
+      Serial.print(" altIAQ (");
+      Serial.print(TSaltIAQ);
+      Serial.println(") ok!");
       // Reset averaging
       count = 0;
       TStemp = 0;
