@@ -2,6 +2,9 @@
 Octopus Board with ESP8266/BME680 runs Bosch Sensortec BSEC for AQI, indicates on Neopixels and pushes data to ThingSpeak. 
 Based on BSEC example by Bosch Sensortec GmbH
 
+Octopus Board, s. here:
+https://www.tindie.com/products/FabLab/iot-octopus-badge-for-iot-evaluation/#
+
 The BSEC library is (c) by Robert Bosch GmbH / Bosch Sensortec GmbH and is available here:
 https://www.bosch-sensortec.com/bst/products/all_products/bsec
 
@@ -9,6 +12,8 @@ Tested with BSEC_1.4.5.1_Generic_Release_20171214
 
 The BME680 driver is (c) by Robert Bosch GmbH / Bosch Sensortec GmbH and is available here:
 https://github.com/BoschSensortec/BME680_driver
+
+Alternative IAQ calculation (c) David Bird
 
 # Installation
 According to Application Note BST-BME680-AN008-45.pdf of BSEC documentation
@@ -34,3 +39,7 @@ According to Application Note BST-BME680-AN008-45.pdf of BSEC documentation
   * We need to copy the file algo\bin\esp8266\libalgobsec.a from the BSEC package into the hardware\esp8266\2.3.0\tools\sdk\lib folder.
   * The linker file found at hardware\esp8266\2.3.0\tools\sdk\ld\eagle.app.v6.common.ld needs to be modifed by inserting the line libalgobsec.a:(.literal .text .literal.∗ .text.∗) after the line ∗libm.a:(.literal .text .literal.∗ .text.∗).
   * Finally, we need to change the linker argument, telling the linker to include BSEC. This is achieved by adding the argument -lalgobsec to the line compiler.c.elf.libs=-lm -lgcc ... found in hardware\esp8266\2.3.0\platform.txt.
+
+
+Don't forget to set Arduino IDE to "Upload Speed" 921600 =)
+Output can also be followed via Serial Monitor
