@@ -42,4 +42,5 @@ According to Application Note BST-BME680-AN008-45.pdf of BSEC documentation
 
 
 Don't forget to set Arduino IDE to "Upload Speed" 921600 =)
+
 Output can also be followed via Serial Monitor
